@@ -3,308 +3,288 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Split Tensile Strength Predictor (NODE) — Mirindi &amp; Sinkhonde</title>
+<title>Split Tensile Strength Predictor (NODE) - Mirindi &amp; Sinkhonde</title>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.22.0/dist/tf-backend-wasm.min.js"></script>
 <style>
 :root{
-  --navy:#002766; --blue:#003CB3; --blue2:#1e63d6; --lblue:#6F9CEB;
-  --ink:#1a2332; --muted:#5a6675; --line:#dbe2ee; --bg:#eef2f9;
-  --ok:#0E7A0D; --warn:#9a6a00; --err:#b3001b; --card:#ffffff;
+--navy:#002766; --blue:#003CB3; --blue2:#1e63d6; --lblue:#6F9CEB;
+--ink:#1a2332; --muted:#5a6675; --line:#dbe2ee; --bg:#eef2f9;
+--ok:#0E7A0D; --warn:#9a6a00; --err:#b3001b; --card:#ffffff;
 }
 *{margin:0;padding:0;box-sizing:border-box;}
 body{font-family:'Times New Roman',Georgia,serif;color:var(--ink);
-  background:linear-gradient(135deg,#001b4d 0%,#003CB3 55%,#1e63d6 100%);
-  min-height:100vh;padding:28px 16px;line-height:1.5;}
+background:linear-gradient(135deg,#001b4d 0%,#003CB3 55%,#1e63d6 100%);
+min-height:100vh;padding:28px 16px;line-height:1.5;}
 .container{max-width:920px;margin:0 auto;background:var(--card);border-radius:18px;
-  box-shadow:0 24px 70px rgba(0,15,60,.45);overflow:hidden;}
+box-shadow:0 24px 70px rgba(0,15,60,.45);overflow:hidden;}
 .header{background:linear-gradient(135deg,var(--navy) 0%,var(--blue) 100%);
-  color:#fff;padding:34px 32px;text-align:center;border-bottom:5px solid #ffd34d;}
+color:#fff;padding:34px 32px;text-align:center;border-bottom:5px solid #ffd34d;}
 .header h1{font-size:2.0em;font-weight:bold;letter-spacing:.3px;margin-bottom:8px;}
 .header .sub{font-size:1.1em;opacity:.95;}
 .header .authors{font-size:.92em;opacity:.85;margin-top:10px;font-style:italic;}
 .badge{display:inline-block;margin-top:14px;padding:5px 14px;border-radius:30px;
-  background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.4);
-  font-size:.85em;letter-spacing:.5px;}
+background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.4);
+font-size:.85em;letter-spacing:.5px;}
 .content{padding:30px 34px 36px;}
 .intro{background:#f4f7fc;border-left:5px solid var(--blue);padding:16px 18px;
-  border-radius:10px;margin-bottom:26px;}
+border-radius:10px;margin-bottom:26px;}
 .intro h3{color:var(--navy);font-size:1.15em;margin-bottom:5px;}
 .intro p{color:var(--muted);font-size:1.0em;}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
-  gap:16px 20px;margin-bottom:24px;}
+gap:16px 20px;margin-bottom:24px;}
 .form-group{display:flex;flex-direction:column;gap:4px;}
 .form-group label{font-weight:bold;color:var(--navy);font-size:1.0em;}
 .form-group .icon{color:var(--blue);font-weight:bold;}
 .form-group input{width:100%;padding:9px 11px;border:2px solid var(--line);
-  border-radius:9px;font-size:1.05em;font-family:'Times New Roman',serif;
-  text-align:center;background:#fafcff;transition:border-color .2s,box-shadow .2s;}
+border-radius:9px;font-size:1.05em;font-family:'Times New Roman',serif;
+text-align:center;background:#fafcff;transition:border-color .2s,box-shadow .2s;}
 .form-group input:focus{outline:none;border-color:var(--blue);
-  box-shadow:0 0 0 3px rgba(0,60,179,.15);}
+box-shadow:0 0 0 3px rgba(0,60,179,.15);}
 .form-group input.out{border-color:#e6a700;background:#fff8e6;}
 .form-group small{color:var(--muted);font-size:.85em;font-style:italic;}
 .button-group{display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:18px;}
 button{padding:14px 18px;font-size:1.1em;font-weight:bold;border:none;border-radius:11px;
-  cursor:pointer;transition:transform .15s,box-shadow .2s,background .2s;
-  font-family:'Times New Roman',serif;}
+cursor:pointer;transition:transform .15s,box-shadow .2s,background .2s;
+font-family:'Times New Roman',serif;}
 .btn-predict{background:linear-gradient(135deg,var(--navy) 0%,var(--blue) 100%);color:#fff;}
 .btn-predict:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 10px 22px rgba(0,40,120,.4);}
 .btn-predict:disabled{opacity:.55;cursor:not-allowed;}
 .btn-clear{background:#e7ecf5;color:var(--navy);}
 .btn-clear:hover{background:#d6deec;}
 .status{padding:10px 14px;border-radius:9px;margin-top:8px;font-weight:bold;
-  text-align:center;font-size:.92em;}
+text-align:center;font-size:.92em;}
 .status.loading{background:#fff3cd;color:var(--warn);}
 .status.success{background:#e2f3e3;color:var(--ok);}
 .status.error{background:#fbe1e4;color:var(--err);}
 .hidden{display:none;}
 .results{margin-top:26px;}
 .result-card{padding:26px;border-radius:14px;text-align:center;color:#fff;
-  background:linear-gradient(135deg,var(--navy) 0%,var(--blue) 70%,var(--blue2) 100%);
-  box-shadow:0 10px 30px rgba(0,30,100,.35);}
+background:linear-gradient(135deg,var(--navy) 0%,var(--blue) 70%,var(--blue2) 100%);
+box-shadow:0 10px 30px rgba(0,30,100,.35);}
 .result-card h3{font-size:1.1em;font-weight:600;opacity:.92;margin-bottom:6px;}
 .result-value{font-size:3.4em;font-weight:bold;line-height:1;margin:6px 0;}
 .result-unit{font-size:1.0em;opacity:.9;}
 .interval{margin-top:12px;font-size:1.05em;background:rgba(255,255,255,.14);
-  display:inline-block;padding:7px 16px;border-radius:30px;border:1px solid rgba(255,255,255,.35);}
+display:inline-block;padding:7px 16px;border-radius:30px;border:1px solid rgba(255,255,255,.35);}
 .physics{margin-top:14px;padding:12px 16px;border-radius:10px;font-size:.95em;
-  background:#f4f7fc;color:var(--ink);border-left:5px solid var(--ok);text-align:left;}
+background:#f4f7fc;color:var(--ink);border-left:5px solid var(--ok);text-align:left;}
 .physics.warn{border-left-color:#e6a700;}
 .physics b{color:var(--navy);}
 .model-info{background:#f4f7fc;padding:22px 24px;border-radius:12px;margin-top:30px;
-  border:1px solid var(--line);}
+border:1px solid var(--line);}
 .model-info h4{color:var(--navy);font-size:1.25em;margin-bottom:10px;
-  border-bottom:2px solid var(--lblue);padding-bottom:6px;}
+border-bottom:2px solid var(--lblue);padding-bottom:6px;}
 .model-info p{color:var(--muted);margin-bottom:7px;font-size:1.0em;}
 .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px;margin-top:14px;}
 .metric{background:#fff;padding:12px;border-radius:9px;text-align:center;
-  border-top:4px solid var(--blue);box-shadow:0 2px 6px rgba(0,0,0,.06);}
+border-top:4px solid var(--blue);box-shadow:0 2px 6px rgba(0,0,0,.06);}
 .metric-label{color:var(--muted);font-size:.88em;margin-bottom:4px;}
 .metric-value{font-size:1.35em;font-weight:bold;color:var(--navy);}
 .footer{text-align:center;padding:18px;color:#cfe0ff;font-size:.85em;}
 @media(max-width:560px){.header h1{font-size:1.5em;}.result-value{font-size:2.6em;}
-  .button-group{grid-template-columns:1fr;}}
+.button-group{grid-template-columns:1fr;}}
 </style>
 </head>
 <body>
 <div class="container">
-  <div class="header">
-    <h1>Split Tensile Strength Predictor</h1>
-    <div class="sub">Neural Oblivious Decision Ensemble (NODE)</div>
-    <div class="authors">Developed by Derrick Mirindi &amp; David Sinkhonde</div>
-    <div class="badge">Rubberized Brick-Powder Concrete · 2026</div>
-  </div>
-
-  <div class="content">
-    <div class="intro">
-      <h3>About this tool</h3>
-      <p>Predicts the split tensile strength (MPa) of rubberized brick-powder concrete
-      from seven mix-design and curing parameters using a trained NODE model, with a
-      90% conformal uncertainty band and a physics-consistency check.</p>
-    </div>
-
-    <form id="predictionForm">
-      <div class="grid">
-        <div class="form-group">
-          <label><span class="icon">▸</span> Cement (kg)</label>
-          <input type="number" id="cement" step="any" data-lo="293" data-hi="378" required>
-          <small>approx. 293 – 378</small>
-        </div>
-        <div class="form-group">
-          <label><span class="icon">▸</span> Brick powder (kg)</label>
-          <input type="number" id="brickPowder" step="any" data-lo="0" data-hi="119" required>
-          <small>approx. 0 – 119</small>
-        </div>
-        <div class="form-group">
-          <label><span class="icon">▸</span> Water (kg)</label>
-          <input type="number" id="water" step="any" data-lo="170" data-hi="170" value="170" required>
-          <small>approx. 170 (constant)</small>
-        </div>
-        <div class="form-group">
-          <label><span class="icon">▸</span> Fine aggregate (kg)</label>
-          <input type="number" id="fineAggregate" step="any" data-lo="583" data-hi="634" required>
-          <small>approx. 583 – 634</small>
-        </div>
-        <div class="form-group">
-          <label><span class="icon">▸</span> Coarse aggregate (kg)</label>
-          <input type="number" id="coarseAggregate" step="any" data-lo="1015" data-hi="1287" required>
-          <small>approx. 1015 – 1287</small>
-        </div>
-        <div class="form-group">
-          <label><span class="icon">▸</span> Waste tire rubber (kg)</label>
-          <input type="number" id="rubber" step="any" data-lo="0" data-hi="102" required>
-          <small>approx. 0 – 102</small>
-        </div>
-        <div class="form-group">
-          <label><span class="icon">▸</span> Age (day)</label>
-          <input type="number" id="age" step="any" data-lo="7" data-hi="90" required>
-          <small>7, 28, 56 or 90 in dataset</small>
-        </div>
-      </div>
-
-      <div class="button-group">
-        <button type="submit" class="btn-predict">Predict split tensile strength</button>
-        <button type="button" class="btn-clear" onclick="clearForm()">Clear</button>
-      </div>
-    </form>
-
-    <div id="status" class="status hidden"></div>
-
-    <div id="resultsContainer" class="results hidden">
-      <div class="result-card">
-        <h3>Predicted Split Tensile Strength</h3>
-        <div class="result-value" id="strengthResult">0.000</div>
-        <div class="result-unit">MPa</div>
-        <div class="interval" id="intervalResult">90% interval: — </div>
-      </div>
-      <div class="physics" id="physicsBox">
-        <b>Physics check:</b> <span id="physicsText">awaiting prediction…</span>
-      </div>
-    </div>
-
-    <div class="model-info">
-      <h4>Model details</h4>
-      <p><b>Algorithm:</b> Neural Oblivious Decision Ensemble (NODE) — six independent
-      sub-networks with LayerNormalization, swish activation, and a learned stacking head
-      (Concatenate + Dense).</p>
-      <p><b>Inputs (7):</b> Cement, Brick powder, Water, Fine aggregate, Coarse aggregate,
-      Waste tire rubber, Age.</p>
-      <p><b>Output:</b> Split tensile strength (MPa), z-score inverse-transformed.</p>
-      <div class="metrics">
-        <div class="metric"><div class="metric-label">Test R²</div><div class="metric-value" id="mR2">—</div></div>
-        <div class="metric"><div class="metric-label">RMSE (MPa)</div><div class="metric-value" id="mRMSE">—</div></div>
-        <div class="metric"><div class="metric-label">MAE (MPa)</div><div class="metric-value" id="mMAE">—</div></div>
-        <div class="metric"><div class="metric-label">Inputs</div><div class="metric-value">7</div></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="footer">NODE model · TensorFlow.js · Times New Roman · © 2026 Mirindi &amp; Sinkhonde</div>
+<div class="header">
+<h1>Split Tensile Strength Predictor</h1>
+<div class="sub">Neural Oblivious Decision Ensemble (NODE)</div>
+<div class="authors">Developed by Derrick Mirindi &amp; David Sinkhonde</div>
+<div class="badge">Rubberized Brick-Powder Concrete &middot; 2026</div>
 </div>
-
+<div class="content">
+<div class="intro">
+<h3>About this tool</h3>
+<p>Predicts the split tensile strength (MPa) of rubberized brick-powder concrete from seven mix-design and curing parameters using a trained NODE model, with a 90% conformal uncertainty band and a physics-consistency check.</p>
+</div>
+<form id="predictionForm">
+<div class="grid">
+<div class="form-group">
+<label><span class="icon">&#9656;</span> Cement (kg)</label>
+<input type="number" id="cement" step="any" data-lo="293" data-hi="378" required>
+<small>approx. 293 - 378</small>
+</div>
+<div class="form-group">
+<label><span class="icon">&#9656;</span> Brick powder (kg)</label>
+<input type="number" id="brickPowder" step="any" data-lo="0" data-hi="119" required>
+<small>approx. 0 - 119</small>
+</div>
+<div class="form-group">
+<label><span class="icon">&#9656;</span> Water (kg)</label>
+<input type="number" id="water" step="any" data-lo="170" data-hi="170" value="170" required>
+<small>approx. 170 (constant)</small>
+</div>
+<div class="form-group">
+<label><span class="icon">&#9656;</span> Fine aggregate (kg)</label>
+<input type="number" id="fineAggregate" step="any" data-lo="583" data-hi="634" required>
+<small>approx. 583 - 634</small>
+</div>
+<div class="form-group">
+<label><span class="icon">&#9656;</span> Coarse aggregate (kg)</label>
+<input type="number" id="coarseAggregate" step="any" data-lo="1015" data-hi="1287" required>
+<small>approx. 1015 - 1287</small>
+</div>
+<div class="form-group">
+<label><span class="icon">&#9656;</span> Waste tire rubber (kg)</label>
+<input type="number" id="rubber" step="any" data-lo="0" data-hi="102" required>
+<small>approx. 0 - 102</small>
+</div>
+<div class="form-group">
+<label><span class="icon">&#9656;</span> Age (day)</label>
+<input type="number" id="age" step="any" data-lo="7" data-hi="90" required>
+<small>7, 28, 56 or 90 in dataset</small>
+</div>
+</div>
+<div class="button-group">
+<button type="submit" class="btn-predict">Predict split tensile strength</button>
+<button type="button" class="btn-clear" onclick="clearForm()">Clear</button>
+</div>
+</form>
+<div id="status" class="status hidden"></div>
+<div id="resultsContainer" class="results hidden">
+<div class="result-card">
+<h3>Predicted Split Tensile Strength</h3>
+<div class="result-value" id="strengthResult">0.000</div>
+<div class="result-unit">MPa</div>
+<div class="interval" id="intervalResult">90% interval: &mdash;</div>
+</div>
+<div class="physics" id="physicsBox">
+<b>Physics check:</b> <span id="physicsText">awaiting prediction&hellip;</span>
+</div>
+</div>
+<div class="model-info">
+<h4>Model details</h4>
+<p><b>Algorithm:</b> Neural Oblivious Decision Ensemble (NODE) - six independent sub-networks with LayerNormalization, swish activation, and a learned stacking head (Concatenate + Dense).</p>
+<p><b>Inputs (7):</b> Cement, Brick powder, Water, Fine aggregate, Coarse aggregate, Waste tire rubber, Age.</p>
+<p><b>Output:</b> Split tensile strength (MPa), z-score inverse-transformed.</p>
+<div class="metrics">
+<div class="metric"><div class="metric-label">Test R&sup2;</div><div class="metric-value" id="mR2">&mdash;</div></div>
+<div class="metric"><div class="metric-label">RMSE (MPa)</div><div class="metric-value" id="mRMSE">&mdash;</div></div>
+<div class="metric"><div class="metric-label">MAE (MPa)</div><div class="metric-value" id="mMAE">&mdash;</div></div>
+<div class="metric"><div class="metric-label">Inputs</div><div class="metric-value">7</div></div>
+</div>
+</div>
+</div>
+<div class="footer">NODE model &middot; TensorFlow.js &middot; Times New Roman &middot; &copy; 2026 Mirindi &amp; Sinkhonde</div>
+</div>
+<script src="./embedded_model.js"></script>
 <script>
-const MODEL_URL = './model.json';
-const INDEXEDDB_KEY = 'indexeddb://split-tensile-node';
-// Conformal 90% half-width (MPa). Override via scaler_params.json {"q_hat_90": ...}
+// Conformal 90% half-width (MPa). Override via SCALER_PARAMS.q_hat_90
 let Q_HAT_90 = 0.35;
-// Physics priors: +1 strength↑ with feature, -1 strength↓, 0 none
-const PHYS = {cement:+1, brickPowder:0, water:-1, fineAggregate:0,
-              coarseAggregate:+1, rubber:-1, age:+1};
-const FIELD_ORDER = ['cement','brickPowder','water','fineAggregate',
-                     'coarseAggregate','rubber','age'];
-
+// Physics priors: +1 strength up with feature, -1 strength down, 0 none
+const PHYS = {cement:+1, brickPowder:0, water:-1, fineAggregate:0, coarseAggregate:+1, rubber:-1, age:+1};
+const FIELD_ORDER = ['cement','brickPowder','water','fineAggregate','coarseAggregate','rubber','age'];
 let nodeModel=null, scaler=null, modelReady=false, scalerReady=false;
-let lastInputs=null;
-
 const statusEl=document.getElementById('status');
 const predictBtn=document.querySelector('.btn-predict');
 const resultsContainer=document.getElementById('resultsContainer');
-
 function updateStatus(m,t){statusEl.textContent=m;statusEl.className='status '+t;statusEl.classList.remove('hidden');}
-function maybeEnablePredict(){
-  if(modelReady&&scalerReady){predictBtn.disabled=false;
-    updateStatus('Model and scaler loaded — ready for predictions.','success');}
-}
+function maybeEnablePredict(){if(modelReady&&scalerReady){predictBtn.disabled=false;
+updateStatus('Model and scaler loaded - ready for predictions.','success');}}
 predictBtn.disabled=true;
 function clearForm(){document.getElementById('predictionForm').reset();
-  document.getElementById('water').value=170;
-  resultsContainer.classList.add('hidden');
-  FIELD_ORDER.forEach(id=>document.getElementById(id).classList.remove('out'));}
-
+document.getElementById('water').value=170;
+resultsContainer.classList.add('hidden');
+FIELD_ORDER.forEach(id=>document.getElementById(id).classList.remove('out'));}
 // live out-of-range highlighting
 FIELD_ORDER.forEach(id=>{
-  const el=document.getElementById(id);
-  el.addEventListener('input',()=>{
-    const v=parseFloat(el.value),lo=+el.dataset.lo,hi=+el.dataset.hi;
-    el.classList.toggle('out', !Number.isNaN(v)&&(v<lo||v>hi));
-  });
+const el=document.getElementById(id);
+el.addEventListener('input',()=>{
+const v=parseFloat(el.value),lo=+el.dataset.lo,hi=+el.dataset.hi;
+el.classList.toggle('out', !Number.isNaN(v)&&(v<lo||v>hi));
 });
-
+});
+// base64 -> ArrayBuffer (the decoded weight shard)
+function b64ToArrayBuffer(b64){
+const bin=atob(b64); const len=bin.length; const bytes=new Uint8Array(len);
+for(let i=0;i<len;i++) bytes[i]=bin.charCodeAt(i);
+return bytes.buffer;
+}
 async function initBackend(){
-  try{await tf.setBackend('webgl');updateStatus('Using WebGL backend.','loading');}
-  catch(e){try{
-      if(tf.wasm&&tf.wasm.setWasmPaths)
-        tf.wasm.setWasmPaths('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.22.0/dist/');
-      await tf.setBackend('wasm');updateStatus('Using WASM backend.','loading');}
-    catch(err){await tf.setBackend('cpu');updateStatus('Using CPU backend.','loading');}}
-  await tf.ready();
+try{await tf.setBackend('webgl');}catch(e){
+try{if(tf.wasm&&tf.wasm.setWasmPaths)
+tf.wasm.setWasmPaths('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.22.0/dist/');
+await tf.setBackend('wasm');}
+catch(err){await tf.setBackend('cpu');}}
+await tf.ready();
 }
-
-async function loadScaler(){
-  try{updateStatus('Loading scaler parameters…','loading');
-    const r=await fetch('./scaler_params.json');scaler=await r.json();
-    if(typeof scaler.q_hat_90==='number') Q_HAT_90=scaler.q_hat_90;
-    if(typeof scaler.test_r2==='number') document.getElementById('mR2').textContent=scaler.test_r2.toFixed(3);
-    if(typeof scaler.test_rmse==='number') document.getElementById('mRMSE').textContent=scaler.test_rmse.toFixed(3);
-    if(typeof scaler.test_mae==='number') document.getElementById('mMAE').textContent=scaler.test_mae.toFixed(3);
-    scalerReady=true;maybeEnablePredict();
-  }catch(err){console.error(err);updateStatus('Error loading scaler: '+err.message,'error');}
+async function loadEmbedded(){
+try{
+updateStatus('Initializing TensorFlow.js...','loading');
+await initBackend();
+// 1) scaler params from embedded constant - no fetch
+scaler = SCALER_PARAMS;
+if(typeof scaler.q_hat_90==='number') Q_HAT_90=scaler.q_hat_90;
+if(typeof scaler.test_r2==='number')  document.getElementById('mR2').textContent=scaler.test_r2.toFixed(3);
+if(typeof scaler.test_rmse==='number')document.getElementById('mRMSE').textContent=scaler.test_rmse.toFixed(3);
+if(typeof scaler.test_mae==='number') document.getElementById('mMAE').textContent=scaler.test_mae.toFixed(3);
+scalerReady=true;
+// 2) rebuild model from memory - no fetch of model.json or .bin
+updateStatus('Loading embedded NODE model...','loading');
+const modelTopology = MODEL_TOPOLOGY.modelTopology;
+const weightSpecs   = MODEL_TOPOLOGY.weightsManifest[0].weights;
+const weightData    = b64ToArrayBuffer(WEIGHTS_B64);
+nodeModel = await tf.loadLayersModel(
+tf.io.fromMemory({modelTopology, weightSpecs, weightData})
+);
+// warm-up
+const d=tf.zeros([1,7]); const o=nodeModel.predict(d);
+Array.isArray(o)?o.forEach(t=>t.dispose()):o.dispose(); d.dispose();
+modelReady=true; maybeEnablePredict();
+}catch(err){console.error(err);updateStatus('Error loading embedded model: '+err.message,'error');}
 }
-
-async function loadModel(){
-  try{updateStatus('Initializing TensorFlow.js…','loading');await initBackend();
-    try{nodeModel=await tf.loadLayersModel(INDEXEDDB_KEY);updateStatus('Model loaded from cache.','success');}
-    catch(cacheErr){updateStatus('Downloading model…','loading');
-      nodeModel=await tf.loadLayersModel(MODEL_URL,{onProgress:f=>
-        updateStatus('Downloading model… '+Math.round(f*100)+'%','loading'),strict:false});
-      try{await nodeModel.save(INDEXEDDB_KEY);}catch(_){} }
-    const d=tf.zeros([1,7]);const o=nodeModel.predict(d);
-    Array.isArray(o)?o.forEach(t=>t.dispose()):o.dispose();d.dispose();
-    modelReady=true;maybeEnablePredict();
-  }catch(err){console.error(err);updateStatus('Error loading model: '+err.message,'error');}
-}
-
 function getInputs(){return FIELD_ORDER.map(id=>parseFloat(document.getElementById(id).value));}
 function standardize(v,mean,std){return v.map((x,i)=>(x-mean[i])/std[i]);}
-
 // quick local physics gradient check via tiny finite difference on the model
 async function physicsCheck(baseStd){
-  const hits=[]; const eps=0.15;
-  for(let j=0;j<7;j++){
-    const f=FIELD_ORDER[j]; if(PHYS[f]===0) continue;
-    const up=baseStd.slice(),dn=baseStd.slice(); up[j]+=eps; dn[j]-=eps;
-    const tu=tf.tensor2d([up],[1,7]),td=tf.tensor2d([dn],[1,7]);
-    const pu=(await nodeModel.predict(tu).data())[0];
-    const pd=(await nodeModel.predict(td).data())[0];
-    tu.dispose();td.dispose();
-    const grad=pu-pd; hits.push(Math.sign(grad)===Math.sign(PHYS[f]));
-  }
-  return hits.filter(Boolean).length/hits.length;
+const hits=[];
+const eps=0.15;
+for(let j=0;j<7;j++){
+const f=FIELD_ORDER[j];
+if(PHYS[f]===0) continue;
+const up=baseStd.slice(),dn=baseStd.slice();
+up[j]+=eps; dn[j]-=eps;
+const tu=tf.tensor2d([up],[1,7]),td=tf.tensor2d([dn],[1,7]);
+const pu=(await nodeModel.predict(tu).data())[0];
+const pd=(await nodeModel.predict(td).data())[0];
+tu.dispose();td.dispose();
+const grad=pu-pd;
+hits.push(Math.sign(grad)===Math.sign(PHYS[f]));
 }
-
+return hits.filter(Boolean).length/hits.length;
+}
 document.getElementById('predictionForm').addEventListener('submit',async function(e){
-  e.preventDefault();
-  try{
-    if(!nodeModel||!scaler){updateStatus('Please wait for the model and scaler to load.','error');return;}
-    const vals=getInputs();
-    if(vals.some(v=>Number.isNaN(v))){updateStatus('Please enter valid numbers for all fields.','error');return;}
-    updateStatus('Running NODE inference…','loading');
-    const xStd=standardize(vals,scaler.X_mean,scaler.X_std);
-    const xT=tf.tensor2d([xStd],[1,7]);
-    const pred=nodeModel.predict(xT);const arr=await pred.data();
-    pred.dispose();xT.dispose();
-    const strength=Math.max(arr[0]*scaler.Y_std+scaler.Y_mean,0);
-    document.getElementById('strengthResult').textContent=strength.toFixed(3);
-    const lo=Math.max(strength-Q_HAT_90,0), hi=strength+Q_HAT_90;
-    document.getElementById('intervalResult').textContent=
-      `90% interval: ${lo.toFixed(3)} – ${hi.toFixed(3)} MPa`;
-
-    // physics consistency
-    const phys=await physicsCheck(xStd);
-    const box=document.getElementById('physicsBox');
-    const txt=document.getElementById('physicsText');
-    const pct=Math.round(phys*100);
-    if(phys>=0.75){box.className='physics';
-      txt.innerHTML=`<b>${pct}%</b> consistent with cementitious priors (more rubber/water → lower strength; more cement/age → higher).`;}
-    else{box.className='physics warn';
-      txt.innerHTML=`<b>${pct}%</b> physics consistency — interpret with caution; this mix may lie in a sparsely-sampled region.`;}
-
-    resultsContainer.classList.remove('hidden');
-    updateStatus('Prediction complete — split tensile strength: '+strength.toFixed(3)+' MPa','success');
-  }catch(err){console.error(err);updateStatus('Prediction error: '+err.message,'error');}
+e.preventDefault();
+try{
+if(!nodeModel||!scaler){updateStatus('Please wait for the model and scaler to load.','error');return;}
+const vals=getInputs();
+if(vals.some(v=>Number.isNaN(v))){updateStatus('Please enter valid numbers for all fields.','error');return;}
+updateStatus('Running NODE inference...','loading');
+const xStd=standardize(vals,scaler.X_mean,scaler.X_std);
+const xT=tf.tensor2d([xStd],[1,7]);
+const pred=nodeModel.predict(xT);const arr=await pred.data();
+pred.dispose();xT.dispose();
+const strength=Math.max(arr[0]*scaler.Y_std+scaler.Y_mean,0);
+document.getElementById('strengthResult').textContent=strength.toFixed(3);
+const lo=Math.max(strength-Q_HAT_90,0), hi=strength+Q_HAT_90;
+document.getElementById('intervalResult').textContent=
+`90% interval: ${lo.toFixed(3)} - ${hi.toFixed(3)} MPa`;
+// physics consistency
+const phys=await physicsCheck(xStd);
+const box=document.getElementById('physicsBox');
+const txt=document.getElementById('physicsText');
+const pct=Math.round(phys*100);
+if(phys>=0.75){box.className='physics';
+txt.innerHTML=`<b>${pct}%</b> consistent with cementitious priors (more rubber/water -> lower strength; more cement/age -> higher).`;}
+else{box.className='physics warn';
+txt.innerHTML=`<b>${pct}%</b> physics consistency - interpret with caution; this mix may lie in a sparsely-sampled region.`;}
+resultsContainer.classList.remove('hidden');
+updateStatus('Prediction complete - split tensile strength: '+strength.toFixed(3)+' MPa','success');
+}catch(err){console.error(err);updateStatus('Prediction error: '+err.message,'error');}
 });
-
-window.addEventListener('load',()=>{loadScaler();loadModel();});
+window.addEventListener('load',loadEmbedded);
 </script>
 </body>
 </html>
