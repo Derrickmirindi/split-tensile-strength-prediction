@@ -210,67 +210,65 @@ function layernorm(x,g,be,eps=1e-3){
 // ── parse topology into an ordered op list (Functional NODE graph) ──
 let GRAPH=null;
 function compileGraph(){
-  const wmap=buildWeightMap();
-  // collect layer configs by name
-  const layersCfg=MODEL_TOPOLOGY.modelTopology.model_config.config.layers;
-  const byName={}; layersCfg.forEach(L=>byName[L.config.name||L.name]=L);
-
-  // resolve a layer's weights by matching manifest keys that start with "<layer>/"
-  function wOf(layerName,kind){
-    const keys=Object.keys(wmap).filter(k=>k.indexOf(layerName+'/')===0);
-    for(const k of keys){
-      if(kind==='kernel'&&/kernel/.test(k))return wmap[k];
-      if(kind==='bias'&&/bias/.test(k))return wmap[k];
-      if(kind==='gamma'&&/gamma/.test(k))return wmap[k];
-      if(kind==='beta'&&/beta/.test(k))return wmap[k];
-    }
-    return null;
-  }
-
-  // build adjacency from inbound_nodes (handles Keras v2/v3 formats)
-  function inboundOf(L){
-    const ib=L.inbound_nodes||L.config.inbound_nodes; if(!ib||!ib.length)return [];
-    const node=ib[0];
-    // v3: {args:[{...keras_history:[name,..]}]}
-    if(!Array.isArray(node)&&node&&node.args){
-      const args=Array.isArray(node.args)?node.args:[node.args];
-      return args.map(a=>{const kh=(a&&a.config&&a.config.keras_history)||(a&&a.keras_history);return kh?kh[0]:null;}).filter(Boolean);
-    }
-    // v2: [[name,0,0,{}],...]
-    if(Array.isArray(node))return node.map(n=>Array.isArray(n)?n[0]:null).filter(Boolean);
-    return [];
-  }
-
-  const order=layersCfg.map(L=>L.config.name||L.name);
-  return {byName,wOf,inboundOf,order};
+const wmap = buildWeightMap();
+const norm = s => s.replace(/:0$/,'').replace(/\/Read$/,'');
+const keys = Object.keys(wmap);
+function wOf(layerName, kind){
+const role = {kernel:/kernel/i, bias:/bias/i, gamma:/gamma|scale/i, beta:/beta|offset/i}[kind];
+let cand = keys.filter(k => norm(k).includes(layerName) && role.test(k));
+if(!cand.length) cand = keys.filter(k => role.test(k) && norm(k).split('/').includes(layerName));
+return cand.length ? wmap[cand[0]] : null;
+}
+const layersCfg = MODEL_TOPOLOGY.modelTopology.model_config.config.layers;
+const byName = {}; layersCfg.forEach(L => byName[L.config.name] = L);
+function inboundOf(L){
+const ib = L.inbound_nodes || L.config.inbound_nodes;
+if(!ib || !ib.length) return [];
+const node = ib[0];
+if(!Array.isArray(node) && node && node.args){
+const args = Array.isArray(node.args) ? node.args : [node.args];
+return args.map(a=>{const kh=(a&&a.config&&a.config.keras_history)||(a&&a.keras_history);return kh?kh[0]:null;}).filter(Boolean);
+}
+if(Array.isArray(node)) return node.map(n=>Array.isArray(n)?n[0]:null).filter(Boolean);
+return [];
+}
+const order=[], seen={};
+function visit(name){
+if(seen[name]||!byName[name]) return;
+inboundOf(byName[name]).forEach(visit);
+seen[name]=true; order.push(name);
+}
+layersCfg.forEach(L=>visit(L.config.name));
+return {byName, wOf, inboundOf, order};
 }
 
 // ── forward pass through the compiled NODE graph ──
 function forward(xStd){
-  const {byName,wOf,inboundOf,order}=GRAPH;
-  const cache={};
-  for(const name of order){
-    const L=byName[name], cls=L.class_name;
-    const ins=inboundOf(L).map(n=>cache[n]);
-    let out;
-    if(cls==='InputLayer'){ out=Float32Array.from(xStd); }
-    else if(cls==='Dense'){
-      out=dense(ins[0],wOf(name,'kernel'),wOf(name,'bias'));
-      const act=L.config.activation;
-      if(act==='swish'||act==='silu')for(let i=0;i<out.length;i++)out[i]=swish(out[i]);
-      else if(act==='relu')for(let i=0;i<out.length;i++)out[i]=Math.max(0,out[i]);
-    }
-    else if(cls==='LayerNormalization'){ out=layernorm(ins[0],wOf(name,'gamma'),wOf(name,'beta')); }
-    else if(cls==='Dropout'){ out=ins[0]; }            // identity at inference
-    else if(cls==='Concatenate'){
-      const tot=ins.reduce((a,t)=>a+t.length,0); out=new Float32Array(tot);
-      let o=0; ins.forEach(t=>{out.set(t,o);o+=t.length;});
-    }
-    else { out=ins[0]; }                               // passthrough fallback
-    cache[name]=out;
-  }
-  // output = last layer
-  return cache[order[order.length-1]][0];
+const {byName,wOf,inboundOf,order}=GRAPH;
+const cache={};
+for(const name of order){
+const L=byName[name], cls=L.class_name;
+const ins=inboundOf(L).map(n=>cache[n]);
+let out;
+if(cls==='InputLayer'){ out=Float32Array.from(xStd); }
+else if(cls==='Dense'){
+const k=wOf(name,'kernel'); if(!k) throw new Error('missing kernel for '+name);
+out=dense(ins[0], k, wOf(name,'bias'));
+const act=L.config.activation;
+if(act==='swish'||act==='silu') for(let i=0;i<out.length;i++) out[i]=swish(out[i]);
+else if(act==='relu') for(let i=0;i<out.length;i++) out[i]=Math.max(0,out[i]);
+}
+else if(cls==='LayerNormalization'){ out=layernorm(ins[0],wOf(name,'gamma'),wOf(name,'beta')); }
+else if(cls==='Dropout'){ out=ins[0]; }
+else if(cls==='Concatenate'){
+const tot=ins.reduce((a,t)=>a+t.length,0); out=new Float32Array(tot);
+let o=0; ins.forEach(t=>{out.set(t,o);o+=t.length;});
+}
+else { out=ins[0]; }
+if(!out || (out.length && Number.isNaN(out[0]))) throw new Error('NaN/undefined at layer: '+name);
+cache[name]=out;
+}
+return cache[order[order.length-1]][0];
 }
 
 function getInputs(){return FIELD_ORDER.map(id=>parseFloat(document.getElementById(id).value));}
