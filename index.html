@@ -154,7 +154,7 @@ button{padding:14px 18px;font-size:1.1em;font-weight:bold;border:none;border-rad
 let Q_HAT_90 = 0.35;
 const PHYS = {cement:+1, brickPowder:0, water:-1, fineAggregate:0, coarseAggregate:+1, rubber:-1, age:+1};
 const FIELD_ORDER = ['cement','brickPowder','water','fineAggregate','coarseAggregate','rubber','age'];
-let net=null, scaler=null, ready=false;
+let scaler=null, ready=false;
 const statusEl=document.getElementById('status');
 const predictBtn=document.querySelector('.btn-predict');
 const resultsContainer=document.getElementById('resultsContainer');
@@ -175,7 +175,7 @@ function b64ToFloat32(b64){
   return new Float32Array(bytes.buffer);
 }
 
-// ── build a flat name→tensor map from weightsManifest + weight buffer ──
+// ── build name→tensor map from weightsManifest + buffer ──
 function buildWeightMap(){
   const specs=MODEL_TOPOLOGY.weightsManifest[0].weights;
   const data=b64ToFloat32(WEIGHTS_B64);
@@ -188,9 +188,8 @@ function buildWeightMap(){
   return map;
 }
 
-// ── minimal math ops ──
+// ── math ops ──
 function swish(x){return x/(1+Math.exp(-x));}
-// y = x·W + b  ; W stored row-major [in,out]
 function dense(x,W,b){
   const [din,dout]=W.shape, w=W.values, out=new Float32Array(dout);
   for(let o=0;o<dout;o++){let s=b?b.values[o]:0;
@@ -198,7 +197,6 @@ function dense(x,W,b){
     out[o]=s;}
   return out;
 }
-// LayerNorm over last axis with gamma/beta
 function layernorm(x,g,be,eps=1e-3){
   const n=x.length; let m=0; for(let i=0;i<n;i++)m+=x[i]; m/=n;
   let v=0; for(let i=0;i<n;i++){const d=x[i]-m; v+=d*d;} v/=n;
@@ -207,68 +205,95 @@ function layernorm(x,g,be,eps=1e-3){
   return out;
 }
 
-// ── parse topology into an ordered op list (Functional NODE graph) ──
+// ── compile topology ──
 let GRAPH=null;
 function compileGraph(){
-const wmap = buildWeightMap();
-const norm = s => s.replace(/:0$/,'').replace(/\/Read$/,'');
-const keys = Object.keys(wmap);
-function wOf(layerName, kind){
-const role = {kernel:/kernel/i, bias:/bias/i, gamma:/gamma|scale/i, beta:/beta|offset/i}[kind];
-let cand = keys.filter(k => norm(k).includes(layerName) && role.test(k));
-if(!cand.length) cand = keys.filter(k => role.test(k) && norm(k).split('/').includes(layerName));
-return cand.length ? wmap[cand[0]] : null;
-}
-const layersCfg = MODEL_TOPOLOGY.modelTopology.model_config.config.layers;
-const byName = {}; layersCfg.forEach(L => byName[L.config.name] = L);
-function inboundOf(L){
-const ib = L.inbound_nodes || L.config.inbound_nodes;
-if(!ib || !ib.length) return [];
-const node = ib[0];
-if(!Array.isArray(node) && node && node.args){
-const args = Array.isArray(node.args) ? node.args : [node.args];
-return args.map(a=>{const kh=(a&&a.config&&a.config.keras_history)||(a&&a.keras_history);return kh?kh[0]:null;}).filter(Boolean);
-}
-if(Array.isArray(node)) return node.map(n=>Array.isArray(n)?n[0]:null).filter(Boolean);
-return [];
-}
-const order=[], seen={};
-function visit(name){
-if(seen[name]||!byName[name]) return;
-inboundOf(byName[name]).forEach(visit);
-seen[name]=true; order.push(name);
-}
-layersCfg.forEach(L=>visit(L.config.name));
-return {byName, wOf, inboundOf, order};
+  const wmap = buildWeightMap();
+  const norm = s => s.replace(/:0$/,'').replace(/\/Read$/,'');
+  const keys = Object.keys(wmap);
+
+  // tolerant weight matcher: layer name as a path segment, then role token
+  function wOf(layerName, kind){
+    const role = {kernel:/kernel/i, bias:/bias/i, gamma:/gamma|scale/i, beta:/beta|offset/i}[kind];
+    let cand = keys.filter(k => norm(k).split('/').includes(layerName) && role.test(k));
+    if(!cand.length) cand = keys.filter(k => norm(k).includes(layerName) && role.test(k));
+    return cand.length ? wmap[cand[0]] : null;
+  }
+
+  const layersCfg = MODEL_TOPOLOGY.modelTopology.model_config.config.layers;
+  const byName = {}; layersCfg.forEach(L => byName[L.config.name] = L);
+  const inputName = (layersCfg.find(L=>L.class_name==='InputLayer')||{config:{}}).config.name;
+
+  // parse inbound names across Keras v2/v3 formats; returns array of layer names
+  function inboundOf(L){
+    const ib = L.inbound_nodes || (L.config && L.config.inbound_nodes);
+    if(!ib || !ib.length) return [];
+    const node = ib[0];
+    // v3 object: {args:[...]}
+    if(!Array.isArray(node) && node && node.args){
+      const args = Array.isArray(node.args) ? node.args : [node.args];
+      const out=[];
+      const dig = a => {
+        if(!a) return;
+        if(Array.isArray(a)){ a.forEach(dig); return; }
+        const kh=(a.config&&a.config.keras_history)||a.keras_history;
+        if(kh){ out.push(kh[0]); }
+      };
+      args.forEach(dig);
+      return out;
+    }
+    // v2 array: [[name,0,0,{}],...]
+    if(Array.isArray(node)) return node.map(n=>Array.isArray(n)?n[0]:null).filter(Boolean);
+    return [];
+  }
+
+  // topological order
+  const order=[], seen={};
+  function visit(name){
+    if(seen[name]||!byName[name]) return;
+    inboundOf(byName[name]).forEach(visit);
+    seen[name]=true; order.push(name);
+  }
+  layersCfg.forEach(L=>visit(L.config.name));
+
+  return {byName, wOf, inboundOf, order, inputName};
 }
 
-// ── forward pass through the compiled NODE graph ──
+// ── forward pass with robust input resolution ──
 function forward(xStd){
-const {byName,wOf,inboundOf,order}=GRAPH;
-const cache={};
-for(const name of order){
-const L=byName[name], cls=L.class_name;
-const ins=inboundOf(L).map(n=>cache[n]);
-let out;
-if(cls==='InputLayer'){ out=Float32Array.from(xStd); }
-else if(cls==='Dense'){
-const k=wOf(name,'kernel'); if(!k) throw new Error('missing kernel for '+name);
-out=dense(ins[0], k, wOf(name,'bias'));
-const act=L.config.activation;
-if(act==='swish'||act==='silu') for(let i=0;i<out.length;i++) out[i]=swish(out[i]);
-else if(act==='relu') for(let i=0;i<out.length;i++) out[i]=Math.max(0,out[i]);
-}
-else if(cls==='LayerNormalization'){ out=layernorm(ins[0],wOf(name,'gamma'),wOf(name,'beta')); }
-else if(cls==='Dropout'){ out=ins[0]; }
-else if(cls==='Concatenate'){
-const tot=ins.reduce((a,t)=>a+t.length,0); out=new Float32Array(tot);
-let o=0; ins.forEach(t=>{out.set(t,o);o+=t.length;});
-}
-else { out=ins[0]; }
-if(!out || (out.length && Number.isNaN(out[0]))) throw new Error('NaN/undefined at layer: '+name);
-cache[name]=out;
-}
-return cache[order[order.length-1]][0];
+  const {byName,wOf,inboundOf,order,inputName}=GRAPH;
+  const cache={};
+  const X=Float32Array.from(xStd);
+  let prev=X;                                  // last successfully computed tensor
+  for(const name of order){
+    const L=byName[name], cls=L.class_name;
+    // resolve inputs; fall back to the model input or previous tensor if missing
+    let ins=inboundOf(L).map(n=>cache[n]);
+    ins=ins.map(t=> (t===undefined ? prev : t));
+    if(ins.length===0) ins=[prev];
+
+    let out;
+    if(cls==='InputLayer'){ out=X; }
+    else if(cls==='Dense'){
+      const k=wOf(name,'kernel'); if(!k) throw new Error('missing kernel for '+name);
+      out=dense(ins[0], k, wOf(name,'bias'));
+      const act=L.config.activation;
+      if(act==='swish'||act==='silu') for(let i=0;i<out.length;i++) out[i]=swish(out[i]);
+      else if(act==='relu') for(let i=0;i<out.length;i++) out[i]=Math.max(0,out[i]);
+    }
+    else if(cls==='LayerNormalization'){ out=layernorm(ins[0],wOf(name,'gamma'),wOf(name,'beta')); }
+    else if(cls==='Dropout'){ out=ins[0]; }
+    else if(cls==='Concatenate'){
+      const tot=ins.reduce((a,t)=>a+(t?t.length:0),0); out=new Float32Array(tot);
+      let o=0; ins.forEach(t=>{ if(t){ out.set(t,o); o+=t.length; } });
+    }
+    else { out=ins[0]; }
+
+    if(!out || (out.length && Number.isNaN(out[0]))) throw new Error('NaN/undefined at layer: '+name);
+    cache[name]=out;
+    if(cls!=='InputLayer') prev=out;
+  }
+  return cache[order[order.length-1]][0];
 }
 
 function getInputs(){return FIELD_ORDER.map(id=>parseFloat(document.getElementById(id).value));}
@@ -285,24 +310,24 @@ function physicsCheck(baseStd){
 
 const yieldToRenderer = () => new Promise(res => { requestAnimationFrame(() => setTimeout(res, 0)); });
 async function init(){
-try{
-scaler = SCALER_PARAMS;
-if(typeof scaler.q_hat_90==='number') Q_HAT_90=scaler.q_hat_90;
-if(typeof scaler.test_r2==='number')  document.getElementById('mR2').textContent=scaler.test_r2.toFixed(3);
-if(typeof scaler.test_rmse==='number')document.getElementById('mRMSE').textContent=scaler.test_rmse.toFixed(3);
-if(typeof scaler.test_mae==='number') document.getElementById('mMAE').textContent=scaler.test_mae.toFixed(3);
-updateStatus('Preparing model…','loading');
-await yieldToRenderer();
-GRAPH = compileGraph();
-await yieldToRenderer();
-forward(new Array(7).fill(0));
-ready = true;
-predictBtn.disabled = false;
-updateStatus('Ready — enter a mix design and predict.','success');
-}catch(err){
-console.error(err);
-updateStatus('Error initializing model: '+err.message,'error');
-}
+  try{
+    scaler = SCALER_PARAMS;
+    if(typeof scaler.q_hat_90==='number') Q_HAT_90=scaler.q_hat_90;
+    if(typeof scaler.test_r2==='number')  document.getElementById('mR2').textContent=scaler.test_r2.toFixed(3);
+    if(typeof scaler.test_rmse==='number')document.getElementById('mRMSE').textContent=scaler.test_rmse.toFixed(3);
+    if(typeof scaler.test_mae==='number') document.getElementById('mMAE').textContent=scaler.test_mae.toFixed(3);
+    updateStatus('Preparing model…','loading');
+    await yieldToRenderer();
+    GRAPH = compileGraph();
+    await yieldToRenderer();
+    forward(new Array(7).fill(0));
+    ready = true;
+    predictBtn.disabled = false;
+    updateStatus('Ready — enter a mix design and predict.','success');
+  }catch(err){
+    console.error(err);
+    updateStatus('Error initializing model: '+err.message,'error');
+  }
 }
 
 document.getElementById('predictionForm').addEventListener('submit',function(e){
@@ -329,11 +354,8 @@ document.getElementById('predictionForm').addEventListener('submit',function(e){
 });
 
 function scheduleInit(){
-if('requestIdleCallback' in window){
-requestIdleCallback(()=>init(), {timeout:1500});
-} else {
-setTimeout(init, 0);
-}
+  if('requestIdleCallback' in window){ requestIdleCallback(()=>init(), {timeout:1500}); }
+  else { setTimeout(init, 0); }
 }
 if(document.readyState === 'complete'){ scheduleInit(); }
 else { window.addEventListener('load', scheduleInit); }
