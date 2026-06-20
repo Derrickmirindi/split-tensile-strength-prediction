@@ -285,18 +285,26 @@ function physicsCheck(baseStd){
   return hits.filter(Boolean).length/hits.length;
 }
 
-function init(){
-  try{
-    scaler=SCALER_PARAMS;
-    if(typeof scaler.q_hat_90==='number')Q_HAT_90=scaler.q_hat_90;
-    if(typeof scaler.test_r2==='number')document.getElementById('mR2').textContent=scaler.test_r2.toFixed(3);
-    if(typeof scaler.test_rmse==='number')document.getElementById('mRMSE').textContent=scaler.test_rmse.toFixed(3);
-    if(typeof scaler.test_mae==='number')document.getElementById('mMAE').textContent=scaler.test_mae.toFixed(3);
-    GRAPH=compileGraph();
-    forward(new Array(7).fill(0));                     // warm-up
-    ready=true; predictBtn.disabled=false;
-    updateStatus('Ready — enter a mix design and predict.','success');
-  }catch(err){console.error(err);updateStatus('Error initializing model: '+err.message,'error');}
+const yieldToRenderer = () => new Promise(res => { requestAnimationFrame(() => setTimeout(res, 0)); });
+async function init(){
+try{
+scaler = SCALER_PARAMS;
+if(typeof scaler.q_hat_90==='number') Q_HAT_90=scaler.q_hat_90;
+if(typeof scaler.test_r2==='number')  document.getElementById('mR2').textContent=scaler.test_r2.toFixed(3);
+if(typeof scaler.test_rmse==='number')document.getElementById('mRMSE').textContent=scaler.test_rmse.toFixed(3);
+if(typeof scaler.test_mae==='number') document.getElementById('mMAE').textContent=scaler.test_mae.toFixed(3);
+updateStatus('Preparing model…','loading');
+await yieldToRenderer();
+GRAPH = compileGraph();
+await yieldToRenderer();
+forward(new Array(7).fill(0));
+ready = true;
+predictBtn.disabled = false;
+updateStatus('Ready — enter a mix design and predict.','success');
+}catch(err){
+console.error(err);
+updateStatus('Error initializing model: '+err.message,'error');
+}
 }
 
 document.getElementById('predictionForm').addEventListener('submit',function(e){
@@ -322,7 +330,15 @@ document.getElementById('predictionForm').addEventListener('submit',function(e){
   }catch(err){console.error(err);updateStatus('Prediction error: '+err.message,'error');}
 });
 
-window.addEventListener('load',init);
+function scheduleInit(){
+if('requestIdleCallback' in window){
+requestIdleCallback(()=>init(), {timeout:1500});
+} else {
+setTimeout(init, 0);
+}
+}
+if(document.readyState === 'complete'){ scheduleInit(); }
+else { window.addEventListener('load', scheduleInit); }
 </script>
 </body>
 </html>
