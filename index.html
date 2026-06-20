@@ -223,7 +223,7 @@ if(typeof scaler.test_mae==='number') document.getElementById('mMAE').textConten
 scalerReady=true;
 // 2) rebuild model from memory - no fetch of model.json or .bin
 updateStatus('Loading embedded NODE model...','loading');
-const modelTopology = JSON.parse(JSON.stringify(MODEL_TOPOLOGY.modelTopology)); (function patchTopo(o){ if(Array.isArray(o)){ o.forEach(patchTopo); } else if(o && typeof o==='object'){ if(o.batch_shape && !o.batchInputShape){ o.batchInputShape = o.batch_shape; delete o.batch_shape; } for(const k in o){ patchTopo(o[k]); } } })(modelTopology);
+const modelTopology = JSON.parse(JSON.stringify(MODEL_TOPOLOGY.modelTopology)); (function patchTopo(o){ if(Array.isArray(o)){ o.forEach(patchTopo); } else if(o && typeof o==='object'){ if(o.batch_shape && !o.batchInputShape){ o.batchInputShape = o.batch_shape; delete o.batch_shape; } if(o.activation==='silu'){ o.activation='swish'; } if(typeof o.activation==='object' && o.activation && o.activation.config){ const an=o.activation.class_name||o.activation.config.name; if(an==='silu'||an==='SiLU'){ o.activation='swish'; } } for(const k in o){ patchTopo(o[k]); } } })(modelTopology);
 const weightSpecs   = MODEL_TOPOLOGY.weightsManifest[0].weights;
 const weightData    = b64ToArrayBuffer(WEIGHTS_B64);
 nodeModel = await tf.loadLayersModel(
