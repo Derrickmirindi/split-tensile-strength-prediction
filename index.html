@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Split Tensile Strength Prediction - Developed by Derrick Mirindi</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.22.0/dist/tf-backend-wasm.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Times New Roman', serif; font-size: 20px; text-align: center; background: linear-gradient(135deg, #2d6a4f 0%, #40916c 100%); min-height: 100vh; padding: 20px; }
+.container { max-width: 340px; margin: 0 auto; background: #ffffff; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.4); overflow: hidden; }
+.header { background: linear-gradient(135deg, #2d6a4f 0%, #40916c 100%); color: #ffffff; padding: 25px 20px; text-align: center; }
+.header h1 { font-size: 1.6em; margin-bottom: 6px; font-weight: bold; }
+.header p { font-size: 1.0em; opacity: 0.96; }
+.content { padding: 20px 25px 25px 25px; }
+.info-section { background: #f8f9fa; border-left: 4px solid #2d6a4f; padding: 12px 14px; margin-bottom: 18px; border-radius: 8px; }
+.info-section h3 { color: #2d6a4f; margin-bottom: 4px; font-size: 1.05em; }
+.info-section p { color: #555; line-height: 1.5; font-size: 0.9em; }
+.form-container { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+.form-group { display: flex; flex-direction: column; align-items: stretch; gap: 3px; }
+.form-group label { font-weight: 600; color: #333; font-size: 1.0em; text-align: left; }
+.form-group input { width: 100%; padding: 6px 8px; border: 2px solid #d0d0d0; border-radius: 6px; font-size: 1.0em; font-family: 'Times New Roman', serif; transition: border-color 0.25s; text-align: center; background: #fafafa; }
+.form-group input:focus { outline: none; border-color: #2d6a4f; box-shadow: 0 0 4px rgba(45,106,79,0.35); }
+.form-group small { color: #999; font-size: 0.85em; font-style: italic; text-align: left; }
+.button-group { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 20px; }
+button { padding: 12px 20px; font-size: 1.0em; font-weight: bold; border: none; border-radius: 10px; cursor: pointer; transition: all 0.25s; font-family: 'Times New Roman', serif; }
+.btn-predict { background: linear-gradient(135deg, #2d6a4f 0%, #40916c 100%); color: #ffffff; }
+.btn-predict:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(45,106,79,0.4); }
+.btn-clear { background: #e0e0e0; color: #333333; }
+.btn-clear:hover { background: #d0d0d0; }
+.status { padding: 8px 12px; border-radius: 8px; margin-top: 10px; font-weight: 600; text-align: center; font-size: 0.85em; }
+.status.loading { background: #fff3cd; color: #856404; }
+.status.success { background: #d4edda; color: #155724; }
+.status.error { background: #f8d7da; color: #721c24; }
+.hidden { display: none; }
+.results-container { margin-top: 20px; padding-top: 20px; border-top: 2px solid #e0e0e0; }
+.result-card { padding: 18px 20px; border-radius: 10px; box-shadow: 0 3px 10px rgba(0,0,0,0.15); text-align: center; background: linear-gradient(135deg, #d8f3dc 0%, #95d5b2 100%); }
+.result-card h3 { color: #333; margin-bottom: 8px; font-size: 1.0em; font-weight: 600; }
+.result-value { font-size: 2.2em; font-weight: bold; color: #1b4332; margin: 5px 0; }
+.result-unit { font-size: 0.9em; color: #555; }
+.model-info { background: #f0f4f8; padding: 18px 20px; border-radius: 8px; margin-top: 28px; border: 2px solid #2d6a4f; }
+.model-info h4 { color: #2d6a4f; margin-bottom: 8px; font-size: 1.15em; }
+.model-info p { color: #555; margin-bottom: 6px; font-size: 1.0em; line-height: 1.5; }
+.metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.metric { background: #ffffff; padding: 9px 10px; border-radius: 6px; text-align: center; border-left: 4px solid #2d6a4f; }
+.metric-label { color: #666; font-size: 0.9em; margin-bottom: 3px; }
+.metric-value { font-size: 1.2em; font-weight: bold; color: #1b4332; }
+</style>
+</head>
+<body>
+<div class="container">
+<div class="header">
+<h1>Split Tensile Strength Prediction</h1>
+<p>Neural Oblivious Decision Ensemble (NODE)</p>
+</div>
+<div class="content">
+<div class="info-section">
+<h3>About this tool</h3>
+<p>Predicts the split tensile strength (MPa) of rubberized brick-powder concrete from seven mix-design and curing parameters using a trained NODE model.</p>
+</div>
+<form id="predictionForm">
+<div class="form-container">
+<div class="form-group">
+<label for="cement">Cement (kg)</label>
+<input type="number" id="cement" step="any" min="293" max="378" required>
+<small>approx. 293 - 378</small>
+</div>
+<div class="form-group">
+<label for="brickPowder">Brick powder (kg)</label>
+<input type="number" id="brickPowder" step="any" min="0" max="119" required>
+<small>approx. 0 - 119</small>
+</div>
+<div class="form-group">
+<label for="water">Water (kg)</label>
+<input type="number" id="water" step="any" min="170" max="170" required>
+<small>approx. 170</small>
+</div>
+<div class="form-group">
+<label for="fineAggregate">Fine aggregate (kg)</label>
+<input type="number" id="fineAggregate" step="any" min="583" max="634" required>
+<small>approx. 583 - 634</small>
+</div>
+<div class="form-group">
+<label for="coarseAggregate">Coarse aggregate (kg)</label>
+<input type="number" id="coarseAggregate" step="any" min="1015" max="1287" required>
+<small>approx. 1015 - 1287</small>
+</div>
+<div class="form-group">
+<label for="rubber">Waste tire rubber (kg)</label>
+<input type="number" id="rubber" step="any" min="0" max="102" required>
+<small>approx. 0 - 102</small>
+</div>
+<div class="form-group">
+<label for="age">Age (day)</label>
+<input type="number" id="age" step="any" min="7" max="90" required>
+<small>7, 28, 56 or 90 in dataset</small>
+</div>
+</div>
+<div class="button-group">
+<button type="submit" class="btn-predict">Predict split tensile strength</button>
+<button type="button" class="btn-clear" onclick="clearForm()">Clear</button>
+</div>
+</form>
+<div id="status" class="status hidden"></div>
+<div id="resultsContainer" class="results-container hidden">
+<div class="result-card">
+<h3>Predicted Split Tensile Strength</h3>
+<div class="result-value" id="strengthResult">0.00</div>
+<div class="result-unit">MPa</div>
+</div>
+</div>
+<div class="model-info">
+<h4>Model details</h4>
+<p>Algorithm: Neural Oblivious Decision Ensemble (NODE) - an ensemble of independent sub-networks with LayerNorm, swish activation and learned stacking.</p>
+<p>Inputs (7): Cement, Brick powder, Water, Fine aggregate, Coarse aggregate, Waste tire rubber, Age.</p>
+<p>Output: Split tensile strength (MPa).</p>
+</div>
+</div>
+</div>
+<script>
+const MODEL_URL = './model.json';
+const INDEXEDDB_KEY = 'indexeddb://split-tensile-node';
+let nodeModel = null;
+let scaler = null;
+let modelReady = false;
+let scalerReady = false;
+const statusEl = document.getElementById('status');
+const predictBtn = document.querySelector('.btn-predict');
+const resultsContainer = document.getElementById('resultsContainer');
+function updateStatus(message, type) {
+statusEl.textContent = message;
+statusEl.className = 'status ' + type;
+statusEl.classList.remove('hidden');
+}
+function maybeEnablePredict() {
+if (modelReady && scalerReady) {
+predictBtn.disabled = false;
+predictBtn.style.opacity = 1.0;
+updateStatus('Model and scaler loaded! Ready for predictions.', 'success');
+}
+}
+predictBtn.disabled = true;
+predictBtn.style.opacity = 0.6;
+function clearForm() {
+document.getElementById('predictionForm').reset();
+resultsContainer.classList.add('hidden');
+}
+async function initBackend() {
+try {
+await tf.setBackend('webgl');
+updateStatus('Using WebGL backend for faster inference.', 'loading');
+} catch (e) {
+try {
+if (tf.wasm && tf.wasm.setWasmPaths) {
+tf.wasm.setWasmPaths('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.22.0/dist/');
+}
+await tf.setBackend('wasm');
+updateStatus('WebGL unavailable, using WASM backend.', 'loading');
+} catch (err) {
+await tf.setBackend('cpu');
+updateStatus('Falling back to CPU backend.', 'loading');
+}
+}
+await tf.ready();
+}
+async function loadScaler() {
+try {
+updateStatus('Loading scaler parameters...', 'loading');
+const resp = await fetch('./scaler_params.json');
+scaler = await resp.json();
+scalerReady = true;
+updateStatus('Scaler parameters loaded.', 'success');
+maybeEnablePredict();
+} catch (err) {
+console.error(err);
+updateStatus('Error loading scaler parameters: ' + err.message, 'error');
+}
+}
+async function loadModel() {
+try {
+updateStatus('Initializing TensorFlow.js...', 'loading');
+await initBackend();
+updateStatus('Loading model from cache...', 'loading');
+try {
+nodeModel = await tf.loadLayersModel(INDEXEDDB_KEY);
+updateStatus('Model loaded from cache.', 'success');
+} catch (cacheErr) {
+updateStatus('Downloading model...', 'loading');
+nodeModel = await tf.loadLayersModel(MODEL_URL, {
+onProgress: (fraction) => {
+const percent = Math.round(fraction * 100);
+updateStatus('Downloading model... ' + percent + '%', 'loading');
+},
+strict: false
+});
+try {
+await nodeModel.save(INDEXEDDB_KEY);
+updateStatus('Model cached locally for faster future loads.', 'success');
+} catch (saveErr) {
+console.warn('Failed to cache model:', saveErr);
+}
+}
+const dummy = tf.zeros([1, 7]);
+const out = nodeModel.predict(dummy);
+if (Array.isArray(out)) out.forEach(t => t.dispose()); else out.dispose();
+dummy.dispose();
+modelReady = true;
+maybeEnablePredict();
+} catch (err) {
+console.error(err);
+updateStatus('Error loading model: ' + err.message, 'error');
+}
+}
+function getInputs() {
+return [
+parseFloat(document.getElementById('cement').value),
+parseFloat(document.getElementById('brickPowder').value),
+parseFloat(document.getElementById('water').value),
+parseFloat(document.getElementById('fineAggregate').value),
+parseFloat(document.getElementById('coarseAggregate').value),
+parseFloat(document.getElementById('rubber').value),
+parseFloat(document.getElementById('age').value)
+];
+}
+function standardize(values, meanArr, stdArr) {
+return values.map((v, i) => (v - meanArr[i]) / stdArr[i]);
+}
+document.getElementById('predictionForm').addEventListener('submit', async function(e) {
+e.preventDefault();
+try {
+if (!nodeModel || !scaler) {
+updateStatus('Please wait for the model and scaler to finish loading.', 'error');
+return;
+}
+const vals = getInputs();
+if (vals.some(v => Number.isNaN(v))) {
+updateStatus('Please enter valid numeric values for all fields.', 'error');
+return;
+}
+updateStatus('Running inference...', 'loading');
+const xStd = standardize(vals, scaler.X_mean, scaler.X_std);
+const xTensor = tf.tensor2d([xStd], [1, 7]);
+const pred = nodeModel.predict(xTensor);
+const arr = await pred.data();
+const yNorm = arr[0];
+pred.dispose();
+xTensor.dispose();
+const strength = yNorm * scaler.Y_std + scaler.Y_mean;
+const strengthClipped = Math.max(strength, 0);
+document.getElementById('strengthResult').textContent = strengthClipped.toFixed(3);
+resultsContainer.classList.remove('hidden');
+updateStatus('Prediction complete | Split tensile strength: ' + strengthClipped.toFixed(3) + ' MPa', 'success');
+} catch (err) {
+console.error(err);
+updateStatus('Prediction error: ' + err.message, 'error');
+}
+});
+window.addEventListener('load', () => {
+loadScaler();
+loadModel();
+});
+</script>
+</body>
+</html>
